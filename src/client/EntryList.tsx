@@ -2,12 +2,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { api, type Entry, type Kind, type Status } from './api';
 
 const TITLES: Record<Kind, string> = {
-  done: 'Done today',
+  plan: 'Plan',
+  done: 'Done',
   note: 'Notes',
   blocker: 'Blockers',
 };
 
 const PLACEHOLDERS: Record<Kind, string> = {
+  plan: 'What do you plan to do today? (cmd/ctrl+enter to add)',
   done: 'What did you just finish? (cmd/ctrl+enter to add)',
   note: 'Jot a note for today...',
   blocker: 'What is blocking you?',

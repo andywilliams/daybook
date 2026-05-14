@@ -9,10 +9,12 @@ export const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
+migrate(db);
+
 db.exec(`
   CREATE TABLE IF NOT EXISTS entries (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    kind TEXT NOT NULL CHECK (kind IN ('done','note','blocker')),
+    kind TEXT NOT NULL CHECK (kind IN ('done','plan','note','blocker')),
     content TEXT NOT NULL,
     status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved')),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
@@ -46,7 +48,7 @@ db.exec(`
   END;
 `);
 
-export type Kind = 'done' | 'note' | 'blocker';
+export type Kind = 'done' | 'plan' | 'note' | 'blocker';
 export type Status = 'open' | 'resolved';
 
 export interface Entry {
@@ -56,4 +58,49 @@ export interface Entry {
   status: Status;
   created_at: string;
   updated_at: string;
+}
+
+function migrate(db: Database.Database): void {
+  const row = db
+    .prepare("SELECT sql FROM sqlite_master WHERE type='table' AND name='entries'")
+    .get() as { sql: string } | undefined;
+  if (!row) return; // fresh DB; CREATE TABLE below will use the new schema
+  if (row.sql.includes("'plan'")) return; // already migrated
+
+  // Old schema lacks 'plan' in the CHECK constraint. Rebuild the table while
+  // preserving rows; FTS + triggers + indexes are dropped and recreated by the
+  // unconditional block below.
+  db.exec(`
+    BEGIN;
+    DROP TRIGGER IF EXISTS entries_ai;
+    DROP TRIGGER IF EXISTS entries_ad;
+    DROP TRIGGER IF EXISTS entries_au;
+    DROP TABLE IF EXISTS entries_fts;
+
+    CREATE TABLE entries_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      kind TEXT NOT NULL CHECK (kind IN ('done','plan','note','blocker')),
+      content TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open' CHECK (status IN ('open','resolved')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    INSERT INTO entries_new (id, kind, content, status, created_at, updated_at)
+      SELECT id, kind, content, status, created_at, updated_at FROM entries;
+    DROP TABLE entries;
+    ALTER TABLE entries_new RENAME TO entries;
+    COMMIT;
+  `);
+}
+
+// After the FTS table is (re)created above, populate it from existing rows if
+// it's empty. This handles two cases:
+//   - a migration just dropped + recreated FTS
+//   - the user upgraded daybook and the FTS table didn't exist on the old DB
+const ftsCount = db.prepare('SELECT COUNT(*) AS n FROM entries_fts').get() as { n: number };
+if (ftsCount.n === 0) {
+  const entryCount = db.prepare('SELECT COUNT(*) AS n FROM entries').get() as { n: number };
+  if (entryCount.n > 0) {
+    db.exec("INSERT INTO entries_fts(entries_fts) VALUES('rebuild');");
+  }
 }

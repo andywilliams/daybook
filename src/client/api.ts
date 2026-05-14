@@ -1,4 +1,4 @@
-export type Kind = 'done' | 'note' | 'blocker';
+export type Kind = 'done' | 'plan' | 'note' | 'blocker';
 export type Status = 'open' | 'resolved';
 
 export interface Entry {
@@ -20,10 +20,8 @@ export interface ListResponse {
 
 export interface StandupResponse {
   yesterdayDone: Entry[];
-  todayDone: Entry[];
+  todayPlan: Entry[];
   openBlockers: Entry[];
-  todayNotes: Entry[];
-  text: string;
 }
 
 async function json<T>(res: Response): Promise<T> {

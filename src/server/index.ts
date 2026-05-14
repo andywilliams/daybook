@@ -6,7 +6,7 @@ app.use(express.json({ limit: '1mb' }));
 
 const PORT = Number(process.env.PORT ?? 3001);
 
-const KINDS: Kind[] = ['done', 'note', 'blocker'];
+const KINDS: Kind[] = ['done', 'plan', 'note', 'blocker'];
 const isKind = (v: unknown): v is Kind => typeof v === 'string' && (KINDS as string[]).includes(v);
 
 // --- CRUD ---
@@ -125,10 +125,10 @@ app.get('/api/standup', (_req: Request, res: Response) => {
     )
     .all() as Entry[];
 
-  const todayDone = db
+  const todayPlan = db
     .prepare(
       `SELECT * FROM entries
-       WHERE kind = 'done' AND created_at >= ${startOfToday} AND created_at < ${startOfTomorrow}
+       WHERE kind = 'plan' AND created_at >= ${startOfToday} AND created_at < ${startOfTomorrow}
        ORDER BY created_at ASC`,
     )
     .all() as Entry[];
@@ -140,16 +140,7 @@ app.get('/api/standup', (_req: Request, res: Response) => {
     )
     .all() as Entry[];
 
-  const todayNotes = db
-    .prepare(
-      `SELECT * FROM entries
-       WHERE kind = 'note' AND created_at >= ${startOfToday} AND created_at < ${startOfTomorrow}
-       ORDER BY created_at ASC`,
-    )
-    .all() as Entry[];
-
-  const text = formatStandup({ yesterdayDone, todayDone, openBlockers, todayNotes });
-  res.json({ yesterdayDone, todayDone, openBlockers, todayNotes, text });
+  res.json({ yesterdayDone, todayPlan, openBlockers });
 });
 
 // --- Export ---
@@ -215,19 +206,3 @@ function toFtsQuery(q: string): string {
     .join(' ');
 }
 
-function formatStandup(opts: {
-  yesterdayDone: Entry[];
-  todayDone: Entry[];
-  openBlockers: Entry[];
-  todayNotes: Entry[];
-}): string {
-  const bullets = (xs: Entry[]) =>
-    xs.length ? xs.map((e) => `- ${e.content}`).join('\n') : '- (nothing)';
-  const sections = [
-    `*Yesterday*\n${bullets(opts.yesterdayDone)}`,
-    `*Today (so far)*\n${bullets(opts.todayDone)}`,
-    `*Blockers*\n${bullets(opts.openBlockers)}`,
-  ];
-  if (opts.todayNotes.length) sections.push(`*Notes*\n${bullets(opts.todayNotes)}`);
-  return sections.join('\n\n');
-}

@@ -7,6 +7,7 @@ import { ExportView } from './ExportView';
 type View = Kind | 'standup' | 'export';
 
 const NAV: { id: View; label: string }[] = [
+  { id: 'plan', label: 'Plan' },
   { id: 'done', label: 'Done' },
   { id: 'note', label: 'Notes' },
   { id: 'blocker', label: 'Blockers' },
@@ -14,20 +15,31 @@ const NAV: { id: View; label: string }[] = [
   { id: 'export', label: 'Export' },
 ];
 
+const COUNT_KINDS: Kind[] = ['plan', 'done', 'note', 'blocker'];
+
 export function App() {
-  const [view, setView] = useState<View>('done');
-  const [counts, setCounts] = useState<Record<Kind, number>>({ done: 0, note: 0, blocker: 0 });
+  const [view, setView] = useState<View>('standup');
+  const [counts, setCounts] = useState<Record<Kind, number>>({
+    plan: 0,
+    done: 0,
+    note: 0,
+    blocker: 0,
+  });
   const [refreshKey, setRefreshKey] = useState(0);
 
   useEffect(() => {
-    const kinds: Kind[] = ['done', 'note', 'blocker'];
     Promise.all(
-      kinds.map((k) =>
+      COUNT_KINDS.map((k) =>
         api.list(k === 'blocker' ? { kind: k, status: 'open', pageSize: 1 } : { kind: k, pageSize: 1 }),
       ),
-    ).then(([d, n, b]) =>
-      setCounts({ done: d.total, note: n.total, blocker: b.total }),
-    );
+    ).then((results) => {
+      const next = { ...counts };
+      COUNT_KINDS.forEach((k, i) => {
+        next[k] = results[i].total;
+      });
+      setCounts(next);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshKey]);
 
   const bump = () => setRefreshKey((k) => k + 1);
@@ -43,7 +55,7 @@ export function App() {
             onClick={() => setView(n.id)}
           >
             <span>{n.label}</span>
-            {n.id === 'done' || n.id === 'note' || n.id === 'blocker' ? (
+            {n.id === 'plan' || n.id === 'done' || n.id === 'note' || n.id === 'blocker' ? (
               <span className="count">
                 {counts[n.id]}
                 {n.id === 'blocker' ? ' open' : ''}
@@ -54,7 +66,7 @@ export function App() {
       </aside>
       <main className="main">
         {view === 'standup' ? (
-          <StandupView />
+          <StandupView onChange={bump} />
         ) : view === 'export' ? (
           <ExportView />
         ) : (
