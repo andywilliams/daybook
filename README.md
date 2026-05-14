@@ -46,3 +46,30 @@ The SQLite database lives at `data/daybook.db`.
 curl -s "http://localhost:3001/api/export?range=month" \
   | claude -p "Extract recurring themes from these daybook entries"
 ```
+
+## Importing from tix-kanban
+
+If you used [tix-kanban](https://github.com/andywilliams/tix-kanban) before, there's a one-shot importer:
+
+```bash
+npm run import:tix-kanban -- \
+  --source=/path/to/tix-kanban \
+  --user-data=$HOME/.tix-kanban \
+  --include-tasks \
+  --dry-run
+```
+
+Drop `--dry-run` to actually write. The script is idempotent — re-running skips entries already imported (matched on `kind + content + day`).
+
+Mappings:
+
+| tix-kanban                                    | daybook                                         |
+| --------------------------------------------- | ----------------------------------------------- |
+| standup `yesterday[]`                         | `done` entry on the day before the standup      |
+| standup `today[]`                             | `plan` entry on the standup day                 |
+| standup `blockers[]`                          | `blocker` entry on the standup day (`resolved`) |
+| task `done` / `verified`                      | `done` entry on the task's `updatedAt`          |
+| task `in-progress` / `review` / `auto-review` | `plan` entry (open) on the task's `createdAt`   |
+| task `backlog`                                | skipped                                         |
+
+Historical blockers come in as `resolved` so they don't clutter the open-blockers view but remain searchable.

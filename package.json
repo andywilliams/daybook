@@ -9,7 +9,8 @@
     "dev:client": "vite",
     "build": "tsc -p tsconfig.server.json && vite build",
     "start": "node dist/server/index.js",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "import:tix-kanban": "tsx scripts/import-tix-kanban.ts"
   },
   "dependencies": {
     "better-sqlite3": "^12.8.0",
