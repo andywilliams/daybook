@@ -2,12 +2,17 @@
  * Imports tix-kanban data into daybook.
  *
  *   tsx scripts/import-tix-kanban.ts [--source=<dir>] [--user-data=<dir>]
+ *                                    [--notes-dir=<dir>]
  *                                    [--include-tasks] [--dry-run]
  *
  *   --source       Path to the tix-kanban project (contains data/standups/).
  *                  Default: ../tix-kanban
- *   --user-data    Path to the tix-kanban user dir (contains tasks/).
+ *   --user-data    Path to the tix-kanban user dir (contains tasks/, daily-activity/).
  *                  Default: $HOME/.tix-kanban
+ *   --notes-dir    Path to the daily notes dir written by the `tix` server.
+ *                  Default: $HOME/.tix/notes
+ *   --logs-dir     Path to the tix activity-log dir (same data as `tix log`).
+ *                  Default: $HOME/.tix/logs
  *   --include-tasks  Also import kanban tasks (off by default).
  *   --dry-run      Show what would be imported; don't write anything.
  *
@@ -15,6 +20,11 @@
  *   standup yesterday[]  -> done entry on (standup.date - 1 day)
  *   standup today[]      -> plan entry on standup.date
  *   standup blockers[]   -> blocker entry on standup.date (status=resolved)
+ *   daily note           -> note entry on note.date, ordered by note.timestamp
+ *   tix log entry        -> done entry on log.date, ordered by log.timestamp
+ *   daily-activity event -> note entry on event.date, ordered by event.timestamp
+ *                           (task started/completed/failed, PR created/merged,
+ *                           review completed)
  *   task done|verified   -> done entry on task.updatedAt
  *   task in-progress|review|auto-review -> plan entry (open) on task.createdAt
  *   task backlog         -> skipped
@@ -43,6 +53,42 @@ interface TaskJSON {
   updatedAt?: string;
 }
 
+interface NoteJSON {
+  id?: string;
+  timestamp?: string;
+  date?: string;
+  content?: string;
+  author?: string;
+}
+
+interface LogJSON {
+  timestamp?: string;
+  date?: string;
+  entry?: string;
+  author?: string;
+}
+
+interface ActivityEvent {
+  taskId?: string;
+  title?: string;
+  timestamp?: string;
+  repo?: string;
+  reason?: string;
+  prNumber?: number;
+  prUrl?: string;
+}
+
+interface PersonaActivity {
+  tasks?: { started?: ActivityEvent[]; completed?: ActivityEvent[]; failed?: ActivityEvent[] };
+  prs?: { created?: ActivityEvent[]; merged?: ActivityEvent[] };
+  reviews?: { completed?: ActivityEvent[] };
+}
+
+interface DailyActivityJSON {
+  date?: string;
+  personas?: Record<string, PersonaActivity>;
+}
+
 type Kind = 'done' | 'plan' | 'note' | 'blocker';
 type Status = 'open' | 'resolved';
 
@@ -60,6 +106,8 @@ interface ImportRow {
 interface Args {
   source: string;
   userData: string;
+  notesDir: string;
+  logsDir: string;
   includeTasks: boolean;
   dryRun: boolean;
 }
@@ -68,12 +116,16 @@ function parseArgs(argv: string[]): Args {
   const args: Args = {
     source: resolve(process.cwd(), '../tix-kanban'),
     userData: join(homedir(), '.tix-kanban'),
+    notesDir: join(homedir(), '.tix', 'notes'),
+    logsDir: join(homedir(), '.tix', 'logs'),
     includeTasks: false,
     dryRun: false,
   };
   for (const a of argv) {
     if (a.startsWith('--source=')) args.source = resolve(a.slice('--source='.length));
     else if (a.startsWith('--user-data=')) args.userData = resolve(a.slice('--user-data='.length));
+    else if (a.startsWith('--notes-dir=')) args.notesDir = resolve(a.slice('--notes-dir='.length));
+    else if (a.startsWith('--logs-dir=')) args.logsDir = resolve(a.slice('--logs-dir='.length));
     else if (a === '--include-tasks') args.includeTasks = true;
     else if (a === '--dry-run') args.dryRun = true;
     else if (a === '--help' || a === '-h') {
@@ -93,7 +145,9 @@ function __usage(): string {
     'Usage: tsx scripts/import-tix-kanban.ts [options]',
     '',
     '  --source=<dir>       tix-kanban project root (has data/standups/)',
-    '  --user-data=<dir>    tix-kanban user dir (has tasks/)',
+    '  --user-data=<dir>    tix-kanban user dir (has tasks/, daily-activity/)',
+    '  --notes-dir=<dir>    tix daily notes dir (default $HOME/.tix/notes)',
+    '  --logs-dir=<dir>     tix activity log dir (default $HOME/.tix/logs)',
     '  --include-tasks      Also import kanban tasks',
     '  --dry-run            Preview without writing',
   ].join('\n');
@@ -134,6 +188,13 @@ function tsAt(day: string, hour: number): string {
   // SQLite "YYYY-MM-DD HH:MM:SS" UTC
   const hh = String(hour).padStart(2, '0');
   return `${day} ${hh}:00:00`;
+}
+
+function hourOf(input: string | undefined | null, fallback: number): number {
+  if (!input) return fallback;
+  const d = new Date(input);
+  if (Number.isNaN(d.getTime())) return fallback;
+  return d.getUTCHours();
 }
 
 function dirExists(p: string): boolean {
@@ -214,6 +275,138 @@ function collectStandups(sourceDir: string): ImportRow[] {
   return rows;
 }
 
+function collectNotes(notesDir: string): ImportRow[] {
+  const files = readJsonFiles<NoteJSON[]>(notesDir);
+  if (files.length === 0) {
+    console.log(`No notes found in ${notesDir}`);
+    return [];
+  }
+  console.log(`Reading ${files.length} note file(s) from ${notesDir}`);
+  const rows: ImportRow[] = [];
+  for (const { path, data } of files) {
+    if (!Array.isArray(data)) {
+      console.warn(`  ! skipping ${path}: not an array`);
+      continue;
+    }
+    for (const note of data) {
+      const content = (note.content ?? '').trim();
+      if (!content || isPlaceholder(content)) continue;
+      const day = toDay(note.timestamp) ?? toDay(note.date);
+      if (!day) continue;
+      rows.push({
+        kind: 'note',
+        content,
+        day,
+        hour: hourOf(note.timestamp, 12),
+        status: 'open',
+        source: `note ${note.id ?? day}`,
+      });
+    }
+  }
+  return rows;
+}
+
+function collectLogs(logsDir: string): ImportRow[] {
+  const files = readJsonFiles<LogJSON[]>(logsDir);
+  if (files.length === 0) {
+    console.log(`No activity logs found in ${logsDir}`);
+    return [];
+  }
+  console.log(`Reading ${files.length} activity-log file(s) from ${logsDir}`);
+  const rows: ImportRow[] = [];
+  for (const { path, data } of files) {
+    if (!Array.isArray(data)) {
+      console.warn(`  ! skipping ${path}: not an array`);
+      continue;
+    }
+    for (const log of data) {
+      const content = (log.entry ?? '').trim();
+      if (!content || isPlaceholder(content)) continue;
+      const day = toDay(log.timestamp) ?? toDay(log.date);
+      if (!day) continue;
+      rows.push({
+        kind: 'done',
+        content,
+        day,
+        hour: hourOf(log.timestamp, 17),
+        status: 'open',
+        source: `tix log ${day}`,
+      });
+    }
+  }
+  return rows;
+}
+
+function describeActivity(
+  bucket: 'started' | 'completed' | 'failed' | 'created' | 'merged' | 'review',
+  event: ActivityEvent,
+): string | null {
+  const repo = event.repo ? ` in ${event.repo}` : '';
+  const title = (event.title ?? '').trim();
+  switch (bucket) {
+    case 'started':
+      return title ? `Started task: ${title}${repo}` : null;
+    case 'completed':
+      return title ? `Completed task: ${title}${repo}` : null;
+    case 'failed': {
+      if (!title) return null;
+      const reason = event.reason ? ` (${event.reason})` : '';
+      return `Failed task: ${title}${repo}${reason}`;
+    }
+    case 'created':
+      return event.prNumber ? `Created PR #${event.prNumber}${repo}` : null;
+    case 'merged':
+      return event.prNumber ? `Merged PR #${event.prNumber}${repo}` : null;
+    case 'review':
+      return event.prNumber
+        ? `Completed review of PR #${event.prNumber}${repo}`
+        : title
+          ? `Completed review: ${title}${repo}`
+          : null;
+  }
+}
+
+function collectActivity(userDataDir: string): ImportRow[] {
+  const dir = join(userDataDir, 'daily-activity');
+  const files = readJsonFiles<DailyActivityJSON>(dir);
+  if (files.length === 0) {
+    console.log(`No daily-activity files found in ${dir}`);
+    return [];
+  }
+  console.log(`Reading ${files.length} daily-activity file(s) from ${dir}`);
+  const rows: ImportRow[] = [];
+  for (const { data } of files) {
+    const fileDay = toDay(data.date);
+    for (const persona of Object.values(data.personas ?? {})) {
+      const buckets: Array<[Parameters<typeof describeActivity>[0], ActivityEvent[] | undefined]> = [
+        ['started', persona.tasks?.started],
+        ['completed', persona.tasks?.completed],
+        ['failed', persona.tasks?.failed],
+        ['created', persona.prs?.created],
+        ['merged', persona.prs?.merged],
+        ['review', persona.reviews?.completed],
+      ];
+      for (const [bucket, events] of buckets) {
+        for (const event of events ?? []) {
+          const content = describeActivity(bucket, event);
+          if (!content) continue;
+          const day = toDay(event.timestamp) ?? fileDay;
+          if (!day) continue;
+          rows.push({
+            kind: 'note',
+            content,
+            day,
+            hour: hourOf(event.timestamp, 12),
+            status: 'open',
+            source: `activity ${day} ${bucket}`,
+          });
+        }
+      }
+    }
+  }
+  return rows;
+}
+
 function collectTasks(userDataDir: string): ImportRow[] {
   const dir = join(userDataDir, 'tasks');
   const files = readJsonFiles<TaskJSON>(dir);
@@ -271,12 +464,17 @@ function main() {
   console.log('daybook ← tix-kanban import');
   console.log(`  source:        ${args.source}`);
   console.log(`  user data:     ${args.userData}`);
+  console.log(`  notes dir:     ${args.notesDir}`);
+  console.log(`  logs dir:      ${args.logsDir}`);
   console.log(`  include tasks: ${args.includeTasks}`);
   console.log(`  dry run:       ${args.dryRun}`);
   console.log('');
 
   const rows: ImportRow[] = [];
   rows.push(...collectStandups(args.source));
+  rows.push(...collectNotes(args.notesDir));
+  rows.push(...collectLogs(args.logsDir));
+  rows.push(...collectActivity(args.userData));
   if (args.includeTasks) rows.push(...collectTasks(args.userData));
 
   if (rows.length === 0) {
