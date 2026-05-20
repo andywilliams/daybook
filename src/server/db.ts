@@ -46,6 +46,15 @@ db.exec(`
     INSERT INTO entries_fts(entries_fts, rowid, content) VALUES('delete', old.id, old.content);
     INSERT INTO entries_fts(rowid, content) VALUES (new.id, new.content);
   END;
+
+  CREATE TABLE IF NOT EXISTS standups (
+    date TEXT PRIMARY KEY,
+    yesterday TEXT NOT NULL DEFAULT '[]',
+    today TEXT NOT NULL DEFAULT '[]',
+    blockers TEXT NOT NULL DEFAULT '[]',
+    submitted_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
 `);
 
 export type Kind = 'done' | 'plan' | 'note' | 'blocker';
@@ -57,6 +66,15 @@ export interface Entry {
   content: string;
   status: Status;
   created_at: string;
+  updated_at: string;
+}
+
+export interface StandupSnapshotRow {
+  date: string;
+  yesterday: string;
+  today: string;
+  blockers: string;
+  submitted_at: string;
   updated_at: string;
 }
 

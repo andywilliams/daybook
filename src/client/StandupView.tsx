@@ -1,13 +1,7 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { api, type StandupResponse } from './api';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { api, type StandupResponse, type StandupSections } from './api';
 
 type SectionKey = 'yesterday' | 'today' | 'blockers';
-
-interface Sections {
-  yesterday: string[];
-  today: string[];
-  blockers: string[];
-}
 
 const SECTION_META: Record<SectionKey, { label: string; addLabel: string }> = {
   yesterday: { label: 'Yesterday', addLabel: 'Add a yesterday item' },
@@ -15,59 +9,129 @@ const SECTION_META: Record<SectionKey, { label: string; addLabel: string }> = {
   blockers: { label: 'Blockers', addLabel: 'Add a blocker' },
 };
 
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function shiftDay(day: string, delta: number): string {
+  const d = new Date(day + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+
+function formatDateLabel(day: string): string {
+  const d = new Date(day + 'T00:00:00Z');
+  return d.toLocaleDateString(undefined, {
+    weekday: 'long',
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export function StandupView({ onChange }: { onChange: () => void }) {
-  const [sections, setSections] = useState<Sections | null>(null);
+  const [date, setDate] = useState<string>(todayISO());
+  const [response, setResponse] = useState<StandupResponse | null>(null);
+  const [draft, setDraft] = useState<StandupSections | null>(null);
   const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const [copied, setCopied] = useState(false);
-  const [showAddPlan, setShowAddPlan] = useState(false);
-  const [planDraft, setPlanDraft] = useState('');
   const focusKeyRef = useRef<string | null>(null);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const r = await api.standup();
-      setSections(fromResponse(r));
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const load = useCallback(
+    async (forDate: string) => {
+      setLoading(true);
+      try {
+        const r = await api.standup(forDate);
+        setResponse(r);
+        setDraft(r.sections);
+        setDirty(false);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
-    load();
-  }, [load]);
+    load(date);
+  }, [date, load]);
+
+  const isToday = date === todayISO();
+  const locked = response?.locked ?? false;
 
   const updateLine = (section: SectionKey, index: number, value: string) => {
-    setSections((s) => (s ? { ...s, [section]: replaceAt(s[section], index, value) } : s));
+    setDraft((s) => (s ? { ...s, [section]: replaceAt(s[section], index, value) } : s));
+    setDirty(true);
   };
 
   const deleteLine = (section: SectionKey, index: number) => {
-    setSections((s) => (s ? { ...s, [section]: s[section].filter((_, i) => i !== index) } : s));
+    setDraft((s) => (s ? { ...s, [section]: s[section].filter((_, i) => i !== index) } : s));
+    setDirty(true);
   };
 
   const addLine = (section: SectionKey) => {
     focusKeyRef.current = `${section}:new`;
-    setSections((s) => (s ? { ...s, [section]: [...s[section], ''] } : s));
+    setDraft((s) => (s ? { ...s, [section]: [...s[section], ''] } : s));
+    setDirty(true);
+  };
+
+  const submit = async () => {
+    if (!draft) return;
+    setSaving(true);
+    try {
+      const r = await api.saveStandup(date, draft);
+      setResponse(r);
+      setDraft(r.sections);
+      setDirty(false);
+      onChange();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const repull = async () => {
+    setSaving(true);
+    try {
+      if (locked) {
+        await api.unlockStandup(date);
+      }
+      await load(date);
+    } finally {
+      setSaving(false);
+    }
   };
 
   const copy = async () => {
-    if (!sections) return;
-    await navigator.clipboard.writeText(formatStandup(sections));
+    if (!draft) return;
+    await navigator.clipboard.writeText(formatStandup(draft));
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
 
-  const submitPlan = async () => {
-    const content = planDraft.trim();
-    if (!content) return;
-    await api.create('plan', content);
-    setPlanDraft('');
-    setShowAddPlan(false);
-    onChange();
-    load();
-  };
+  const status = useMemo(() => {
+    if (!response) return null;
+    if (response.locked) {
+      const when = response.updatedAt ?? response.submittedAt;
+      return when ? `Submitted · ${formatTime(when)}` : 'Submitted';
+    }
+    return 'Live preview · not submitted';
+  }, [response]);
 
-  if (loading || !sections) {
+  if (loading || !draft || !response) {
     return (
       <div>
         <h2>Standup</h2>
@@ -82,17 +146,60 @@ export function StandupView({ onChange }: { onChange: () => void }) {
         <h2>Standup</h2>
         <div className="standup-actions">
           <button onClick={copy}>{copied ? 'Copied!' : 'Copy for Slack'}</button>
-          <button className="ghost" onClick={load} title="Re-pull from your entries">
-            Reset
-          </button>
         </div>
       </div>
 
-      <p className="standup-hint">
-        Pulled from yesterday's <code>done</code>, today's <code>plan</code>, and open{' '}
-        <code>blockers</code>. Edits here are local — they don't change your entries. Use{' '}
-        <strong>Reset</strong> to re-pull, or add a plan item that sticks.
-      </p>
+      <div className="standup-datebar">
+        <button className="ghost" onClick={() => setDate(shiftDay(date, -1))} title="Previous day">
+          ← Prev
+        </button>
+        <div className="standup-date">
+          <strong>{formatDateLabel(date)}</strong>
+          <input
+            type="date"
+            className="standup-date-picker"
+            value={date}
+            max={todayISO()}
+            onChange={(e) => {
+              if (e.target.value) setDate(e.target.value);
+            }}
+            title="Jump to a date"
+          />
+          {!isToday && (
+            <button className="ghost small" onClick={() => setDate(todayISO())}>
+              Today
+            </button>
+          )}
+        </div>
+        <button
+          className="ghost"
+          onClick={() => setDate(shiftDay(date, 1))}
+          disabled={isToday}
+          title={isToday ? 'No future dates' : 'Next day'}
+        >
+          Next →
+        </button>
+      </div>
+
+      <div className={`standup-status ${locked ? 'is-locked' : 'is-live'}`}>
+        <span>{status}</span>
+        <div className="standup-status-actions">
+          {locked || dirty ? (
+            <button className="ghost small" onClick={repull} disabled={saving}>
+              {locked ? 'Unlock & re-pull from entries' : 'Reset to entries'}
+            </button>
+          ) : null}
+          <button onClick={submit} disabled={saving || (locked && !dirty)}>
+            {saving
+              ? 'Saving…'
+              : locked
+                ? dirty
+                  ? 'Save edits'
+                  : 'Saved'
+                : 'Submit standup'}
+          </button>
+        </div>
+      </div>
 
       {(['yesterday', 'today', 'blockers'] as SectionKey[]).map((key) => (
         <Section
@@ -100,60 +207,18 @@ export function StandupView({ onChange }: { onChange: () => void }) {
           sectionKey={key}
           label={SECTION_META[key].label}
           addLabel={SECTION_META[key].addLabel}
-          items={sections[key]}
+          items={draft[key]}
           onUpdate={(i, v) => updateLine(key, i, v)}
           onDelete={(i) => deleteLine(key, i)}
           onAdd={() => addLine(key)}
           focusKey={focusKeyRef.current}
           clearFocus={() => (focusKeyRef.current = null)}
-          extraControl={
-            key === 'today' ? (
-              <button
-                className="ghost small"
-                onClick={() => setShowAddPlan((v) => !v)}
-                title="Save as a Plan entry too"
-              >
-                {showAddPlan ? 'Hide' : '+ Save plan entry'}
-              </button>
-            ) : null
-          }
         />
       ))}
 
-      {showAddPlan && (
-        <div className="add-plan">
-          <textarea
-            value={planDraft}
-            onChange={(e) => setPlanDraft(e.target.value)}
-            placeholder="Plan item to save (will appear in today's Plan tab)"
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-                e.preventDefault();
-                submitPlan();
-              }
-            }}
-            autoFocus
-          />
-          <div className="add-plan-actions">
-            <button onClick={submitPlan} disabled={!planDraft.trim()}>
-              Save plan
-            </button>
-            <button
-              className="ghost"
-              onClick={() => {
-                setPlanDraft('');
-                setShowAddPlan(false);
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
       <details className="standup-preview">
         <summary>Preview</summary>
-        <pre>{formatStandup(sections)}</pre>
+        <pre>{formatStandup(draft)}</pre>
       </details>
     </div>
   );
@@ -169,7 +234,6 @@ function Section({
   onAdd,
   focusKey,
   clearFocus,
-  extraControl,
 }: {
   sectionKey: SectionKey;
   label: string;
@@ -180,13 +244,11 @@ function Section({
   onAdd: () => void;
   focusKey: string | null;
   clearFocus: () => void;
-  extraControl?: React.ReactNode;
 }) {
   return (
     <div className={`section section-${sectionKey}`}>
       <div className="section-head">
         <h3>{label}</h3>
-        {extraControl}
       </div>
       {items.length === 0 ? (
         <div className="section-empty">(nothing yet)</div>
@@ -234,21 +296,13 @@ function Section({
   );
 }
 
-function fromResponse(r: StandupResponse): Sections {
-  return {
-    yesterday: r.yesterdayDone.map((e) => e.content),
-    today: r.todayPlan.map((e) => e.content),
-    blockers: r.openBlockers.map((e) => e.content),
-  };
-}
-
 function replaceAt(xs: string[], i: number, v: string): string[] {
   const out = xs.slice();
   out[i] = v;
   return out;
 }
 
-function formatStandup(s: Sections): string {
+function formatStandup(s: StandupSections): string {
   const bullets = (xs: string[]) => {
     const clean = xs.map((x) => x.trim()).filter(Boolean);
     return clean.length ? clean.map((x) => `- ${x}`).join('\n') : '- (nothing)';

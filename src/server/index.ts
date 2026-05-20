@@ -1,5 +1,5 @@
 import express, { type Request, type Response } from 'express';
-import { db, type Entry, type Kind } from './db.js';
+import { db, type Entry, type Kind, type StandupSnapshotRow } from './db.js';
 
 const app = express();
 app.use(express.json({ limit: '1mb' }));
@@ -112,35 +112,139 @@ app.get('/api/entries', (req: Request, res: Response) => {
 
 // --- Standup ---
 
-app.get('/api/standup', (_req: Request, res: Response) => {
-  const startOfYesterday = "datetime('now','start of day','-1 day')";
-  const startOfToday = "datetime('now','start of day')";
-  const startOfTomorrow = "datetime('now','start of day','+1 day')";
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
-  const yesterdayDone = db
+function todayISO(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function shiftDayISO(day: string, delta: number): string {
+  const d = new Date(day + 'T00:00:00Z');
+  d.setUTCDate(d.getUTCDate() + delta);
+  return d.toISOString().slice(0, 10);
+}
+
+function entriesOn(day: string, kind: Kind): Entry[] {
+  return db
     .prepare(
       `SELECT * FROM entries
-       WHERE kind = 'done' AND created_at >= ${startOfYesterday} AND created_at < ${startOfToday}
-       ORDER BY created_at ASC`,
+       WHERE kind = ? AND date(created_at) = ?
+       ORDER BY created_at ASC, id ASC`,
     )
-    .all() as Entry[];
+    .all(kind, day) as Entry[];
+}
 
-  const todayPlan = db
-    .prepare(
-      `SELECT * FROM entries
-       WHERE kind = 'plan' AND created_at >= ${startOfToday} AND created_at < ${startOfTomorrow}
-       ORDER BY created_at ASC`,
-    )
-    .all() as Entry[];
+interface StandupSections {
+  yesterday: string[];
+  today: string[];
+  blockers: string[];
+}
 
-  const openBlockers = db
-    .prepare(
-      `SELECT * FROM entries WHERE kind = 'blocker' AND status = 'open'
-       ORDER BY created_at ASC`,
-    )
-    .all() as Entry[];
+function livePreview(date: string): StandupSections {
+  const yesterday = entriesOn(shiftDayISO(date, -1), 'done').map((e) => e.content);
+  const today = entriesOn(date, 'plan').map((e) => e.content);
+  // For "today" (real today), use currently-open blockers; for past dates,
+  // use blockers that existed on that date.
+  let blockerEntries: Entry[];
+  if (date === todayISO()) {
+    blockerEntries = db
+      .prepare(
+        `SELECT * FROM entries WHERE kind = 'blocker' AND status = 'open'
+         ORDER BY created_at ASC, id ASC`,
+      )
+      .all() as Entry[];
+  } else {
+    blockerEntries = entriesOn(date, 'blocker');
+  }
+  return { yesterday, today, blockers: blockerEntries.map((e) => e.content) };
+}
 
-  res.json({ yesterdayDone, todayPlan, openBlockers });
+function getSnapshot(date: string): StandupSnapshotRow | undefined {
+  return db.prepare('SELECT * FROM standups WHERE date = ?').get(date) as
+    | StandupSnapshotRow
+    | undefined;
+}
+
+function parseSnapshot(row: StandupSnapshotRow): StandupSections {
+  return {
+    yesterday: JSON.parse(row.yesterday),
+    today: JSON.parse(row.today),
+    blockers: JSON.parse(row.blockers),
+  };
+}
+
+function sanitizeSections(input: unknown): StandupSections | null {
+  if (!input || typeof input !== 'object') return null;
+  const obj = input as Record<string, unknown>;
+  const out: StandupSections = { yesterday: [], today: [], blockers: [] };
+  for (const key of ['yesterday', 'today', 'blockers'] as const) {
+    const arr = obj[key];
+    if (!Array.isArray(arr)) return null;
+    out[key] = arr.map((v) => (typeof v === 'string' ? v : '')).filter((v) => v.trim().length > 0);
+  }
+  return out;
+}
+
+app.get('/api/standup', (req: Request, res: Response) => {
+  const date = typeof req.query.date === 'string' && DATE_RE.test(req.query.date)
+    ? req.query.date
+    : todayISO();
+  const snapshot = getSnapshot(date);
+  if (snapshot) {
+    res.json({
+      date,
+      sections: parseSnapshot(snapshot),
+      locked: true,
+      submittedAt: snapshot.submitted_at,
+      updatedAt: snapshot.updated_at,
+    });
+    return;
+  }
+  res.json({ date, sections: livePreview(date), locked: false });
+});
+
+app.post('/api/standup', (req: Request, res: Response) => {
+  const { date, sections } = req.body ?? {};
+  if (typeof date !== 'string' || !DATE_RE.test(date)) {
+    return res.status(400).json({ error: 'invalid date' });
+  }
+  const clean = sanitizeSections(sections);
+  if (!clean) return res.status(400).json({ error: 'invalid sections' });
+  const existing = getSnapshot(date);
+  if (existing) {
+    db.prepare(
+      `UPDATE standups SET yesterday = ?, today = ?, blockers = ?, updated_at = datetime('now')
+       WHERE date = ?`,
+    ).run(JSON.stringify(clean.yesterday), JSON.stringify(clean.today), JSON.stringify(clean.blockers), date);
+  } else {
+    db.prepare(
+      `INSERT INTO standups (date, yesterday, today, blockers)
+       VALUES (?, ?, ?, ?)`,
+    ).run(date, JSON.stringify(clean.yesterday), JSON.stringify(clean.today), JSON.stringify(clean.blockers));
+  }
+  const row = getSnapshot(date)!;
+  res.status(existing ? 200 : 201).json({
+    date,
+    sections: parseSnapshot(row),
+    locked: true,
+    submittedAt: row.submitted_at,
+    updatedAt: row.updated_at,
+  });
+});
+
+app.delete('/api/standup/:date', (req: Request, res: Response) => {
+  const { date } = req.params;
+  if (!DATE_RE.test(date)) return res.status(400).json({ error: 'invalid date' });
+  db.prepare('DELETE FROM standups WHERE date = ?').run(date);
+  res.status(204).end();
+});
+
+app.get('/api/standup/history', (req: Request, res: Response) => {
+  const limit = Math.min(Math.max(Number(req.query.limit ?? 30), 1), 365);
+  const rows = db
+    .prepare('SELECT date, submitted_at, updated_at FROM standups ORDER BY date DESC LIMIT ?')
+    .all(limit) as Array<Pick<StandupSnapshotRow, 'date' | 'submitted_at' | 'updated_at'>>;
+  res.json({ rows });
 });
 
 // --- Export ---

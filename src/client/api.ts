@@ -18,10 +18,24 @@ export interface ListResponse {
   pageCount: number;
 }
 
+export interface StandupSections {
+  yesterday: string[];
+  today: string[];
+  blockers: string[];
+}
+
 export interface StandupResponse {
-  yesterdayDone: Entry[];
-  todayPlan: Entry[];
-  openBlockers: Entry[];
+  date: string;
+  sections: StandupSections;
+  locked: boolean;
+  submittedAt?: string;
+  updatedAt?: string;
+}
+
+export interface StandupHistoryRow {
+  date: string;
+  submitted_at: string;
+  updated_at: string;
 }
 
 async function json<T>(res: Response): Promise<T> {
@@ -63,8 +77,27 @@ export const api = {
   remove(id: number) {
     return fetch(`/api/entries/${id}`, { method: 'DELETE' }).then(json<void>);
   },
-  standup() {
-    return fetch('/api/standup').then(json<StandupResponse>);
+  standup(date?: string) {
+    const sp = new URLSearchParams();
+    if (date) sp.set('date', date);
+    const qs = sp.toString();
+    return fetch(`/api/standup${qs ? `?${qs}` : ''}`).then(json<StandupResponse>);
+  },
+  saveStandup(date: string, sections: StandupSections) {
+    return fetch('/api/standup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ date, sections }),
+    }).then(json<StandupResponse>);
+  },
+  unlockStandup(date: string) {
+    return fetch(`/api/standup/${date}`, { method: 'DELETE' }).then(json<void>);
+  },
+  standupHistory(limit?: number) {
+    const sp = new URLSearchParams();
+    if (limit) sp.set('limit', String(limit));
+    const qs = sp.toString();
+    return fetch(`/api/standup/history${qs ? `?${qs}` : ''}`).then(json<{ rows: StandupHistoryRow[] }>);
   },
   exportData(params: { range?: 'week' | 'month'; from?: string; to?: string }) {
     const sp = new URLSearchParams();

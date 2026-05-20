@@ -284,6 +284,64 @@ input[type='text'] {
   font-size: 12px;
 }
 
+.standup-datebar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 12px;
+}
+
+.standup-date {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 15px;
+}
+
+.standup-date-picker {
+  background: var(--panel-2);
+  color: inherit;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font: inherit;
+  font-size: 13px;
+  color-scheme: dark light;
+  cursor: pointer;
+}
+
+.standup-date-picker:hover {
+  border-color: var(--muted);
+}
+
+.standup-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  margin: 0 0 16px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.standup-status.is-locked {
+  border-left: 3px solid var(--done, #4caf50);
+}
+
+.standup-status.is-live {
+  border-left: 3px solid var(--muted);
+}
+
+.standup-status-actions {
+  display: flex;
+  gap: 8px;
+}
+
 .section {
   background: var(--panel);
   border: 1px solid var(--border);
