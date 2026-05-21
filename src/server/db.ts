@@ -55,7 +55,30 @@ db.exec(`
     submitted_at TEXT NOT NULL DEFAULT (datetime('now')),
     updated_at TEXT NOT NULL DEFAULT (datetime('now'))
   );
+
+  CREATE TABLE IF NOT EXISTS reviews (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    period TEXT NOT NULL CHECK (period IN ('week','month','quarter')),
+    from_date TEXT NOT NULL,
+    to_date TEXT NOT NULL,
+    content TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+  );
+
+  CREATE UNIQUE INDEX IF NOT EXISTS uq_reviews_period_range
+    ON reviews(period, from_date, to_date);
+
+  CREATE INDEX IF NOT EXISTS idx_reviews_period_from
+    ON reviews(period, from_date DESC);
 `);
+
+// Backfill `updated_at` on existing reviews tables that pre-date that column.
+const reviewCols = db.prepare("PRAGMA table_info('reviews')").all() as Array<{ name: string }>;
+if (!reviewCols.some((c) => c.name === 'updated_at')) {
+  db.exec(`ALTER TABLE reviews ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';`);
+  db.exec(`UPDATE reviews SET updated_at = created_at WHERE updated_at = '';`);
+}
 
 export type Kind = 'done' | 'plan' | 'note' | 'blocker';
 export type Status = 'open' | 'resolved';
@@ -75,6 +98,16 @@ export interface StandupSnapshotRow {
   today: string;
   blockers: string;
   submitted_at: string;
+  updated_at: string;
+}
+
+export interface ReviewRow {
+  id: number;
+  period: 'week' | 'month' | 'quarter';
+  from_date: string;
+  to_date: string;
+  content: string;
+  created_at: string;
   updated_at: string;
 }
 

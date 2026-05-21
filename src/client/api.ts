@@ -38,6 +38,46 @@ export interface StandupHistoryRow {
   updated_at: string;
 }
 
+export type ReviewPeriod = 'week' | 'month' | 'quarter';
+
+export interface StatTile {
+  label: string;
+  value: string | number;
+  sublabel?: string;
+}
+
+export interface BarChart {
+  type: 'bar';
+  title: string;
+  data: { label: string; value: number }[];
+}
+
+export type ReviewSection =
+  | { kind: 'themes'; title?: string; items: { title: string; body: string }[] }
+  | { kind: 'wins'; title?: string; items: string[] }
+  | { kind: 'stuck'; title?: string; items: { title: string; body: string }[] }
+  | { kind: 'people'; title?: string; items: { name: string; count: number; note?: string }[] }
+  | { kind: 'tickets'; title?: string; items: { id: string; count: number; note?: string }[] }
+  | { kind: 'prose'; title?: string; body: string };
+
+export interface ReviewContent {
+  headline: string;
+  summary: string;
+  stats: StatTile[];
+  charts?: BarChart[];
+  sections: ReviewSection[];
+}
+
+export interface Review {
+  id: number;
+  period: ReviewPeriod;
+  from_date: string;
+  to_date: string;
+  content: ReviewContent;
+  created_at: string;
+  updated_at: string;
+}
+
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
   if (res.status === 204) return undefined as T;
@@ -98,6 +138,31 @@ export const api = {
     if (limit) sp.set('limit', String(limit));
     const qs = sp.toString();
     return fetch(`/api/standup/history${qs ? `?${qs}` : ''}`).then(json<{ rows: StandupHistoryRow[] }>);
+  },
+  reviews(period?: ReviewPeriod, limit?: number) {
+    const sp = new URLSearchParams();
+    if (period) sp.set('period', period);
+    if (limit) sp.set('limit', String(limit));
+    const qs = sp.toString();
+    return fetch(`/api/reviews${qs ? `?${qs}` : ''}`).then(json<{ rows: Review[] }>);
+  },
+  review(id: number) {
+    return fetch(`/api/reviews/${id}`).then(json<Review>);
+  },
+  createReview(payload: {
+    period: ReviewPeriod;
+    from: string;
+    to: string;
+    content: ReviewContent;
+  }) {
+    return fetch('/api/reviews', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).then(json<Review>);
+  },
+  deleteReview(id: number) {
+    return fetch(`/api/reviews/${id}`, { method: 'DELETE' }).then(json<void>);
   },
   exportData(params: { range?: 'week' | 'month'; from?: string; to?: string }) {
     const sp = new URLSearchParams();

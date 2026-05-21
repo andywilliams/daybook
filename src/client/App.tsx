@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
 import { api, type Kind } from './api';
 import { EntryList } from './EntryList';
+import { KindDayView } from './KindDayView';
 import { StandupView } from './StandupView';
+import { DayView } from './DayView';
+import { ReviewsView } from './ReviewsView';
 import { ExportView } from './ExportView';
 
-type View = Kind | 'standup' | 'export';
+type View = Kind | 'standup' | 'day' | 'reviews' | 'export';
 
 const NAV: { id: View; label: string }[] = [
   { id: 'plan', label: 'Plan' },
@@ -12,6 +15,8 @@ const NAV: { id: View; label: string }[] = [
   { id: 'note', label: 'Notes' },
   { id: 'blocker', label: 'Blockers' },
   { id: 'standup', label: 'Standup' },
+  { id: 'day', label: 'Day' },
+  { id: 'reviews', label: 'Reviews' },
   { id: 'export', label: 'Export' },
 ];
 
@@ -63,12 +68,38 @@ export function App() {
             ) : null}
           </button>
         ))}
+        <div className="sidebar-footer">
+          <a
+            className="sidebar-link"
+            href="/agents.md"
+            target="_blank"
+            rel="noreferrer"
+            title="Full API contract for AI agents"
+          >
+            For AI agents →
+          </a>
+          <a
+            className="sidebar-link sidebar-link-faint"
+            href="/llms.txt"
+            target="_blank"
+            rel="noreferrer"
+            title="Discovery entry (llmstxt.org)"
+          >
+            /llms.txt
+          </a>
+        </div>
       </aside>
       <main className="main">
         {view === 'standup' ? (
           <StandupView onChange={bump} />
+        ) : view === 'day' ? (
+          <DayView onChange={bump} />
+        ) : view === 'reviews' ? (
+          <ReviewsView />
         ) : view === 'export' ? (
           <ExportView />
+        ) : view === 'plan' || view === 'done' || view === 'note' ? (
+          <KindDayView kind={view} onChange={bump} />
         ) : (
           <EntryList kind={view} onChange={bump} />
         )}

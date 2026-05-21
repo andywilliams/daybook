@@ -145,7 +145,7 @@ export function EntryList({ kind, onChange }: { kind: Kind; onChange: () => void
   );
 }
 
-function EntryRow({ entry, onChanged }: { entry: Entry; onChanged: () => void }) {
+export function EntryRow({ entry, onChanged }: { entry: Entry; onChanged: () => void }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(entry.content);
 
