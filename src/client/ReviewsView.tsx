@@ -40,12 +40,14 @@ export function ReviewsView() {
   const [filter, setFilter] = useState<'all' | ReviewPeriod>('all');
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
+  const [index, setIndex] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await api.reviews(filter === 'all' ? undefined : filter, 50);
+      const r = await api.reviews(filter === 'all' ? undefined : filter, 365);
       setReviews(r.rows);
+      setIndex(0);
     } finally {
       setLoading(false);
     }
@@ -60,6 +62,12 @@ export function ReviewsView() {
     await api.deleteReview(id);
     load();
   };
+
+  const total = reviews.length;
+  const safeIndex = Math.min(index, Math.max(0, total - 1));
+  const current = total > 0 ? reviews[safeIndex] : null;
+  const atNewest = safeIndex === 0;
+  const atOldest = safeIndex >= total - 1;
 
   return (
     <div className="reviews">
@@ -85,17 +93,46 @@ export function ReviewsView() {
         ))}
       </div>
 
+      {total > 0 && (
+        <div className="standup-datebar">
+          <button
+            className="ghost"
+            onClick={() => setIndex(safeIndex + 1)}
+            disabled={atOldest}
+            title={atOldest ? 'No older reviews' : 'Older review'}
+          >
+            ← Older
+          </button>
+          <div className="standup-date">
+            <strong>
+              {safeIndex + 1} of {total}
+            </strong>
+            {!atNewest && (
+              <button className="ghost small" onClick={() => setIndex(0)}>
+                Latest
+              </button>
+            )}
+          </div>
+          <button
+            className="ghost"
+            onClick={() => setIndex(safeIndex - 1)}
+            disabled={atNewest}
+            title={atNewest ? 'No newer reviews' : 'Newer review'}
+          >
+            Newer →
+          </button>
+        </div>
+      )}
+
       {loading ? (
         <div className="empty">Loading...</div>
-      ) : reviews.length === 0 ? (
+      ) : !current ? (
         <div className="empty">
           No reviews yet. Hand Claude a fresh export and ask for one — it'll POST to <code>/api/reviews</code>.
         </div>
       ) : (
         <div className="reviews-list">
-          {reviews.map((r) => (
-            <ReviewCard key={r.id} review={r} onDelete={() => remove(r.id)} />
-          ))}
+          <ReviewCard review={current} onDelete={() => remove(current.id)} />
         </div>
       )}
     </div>
