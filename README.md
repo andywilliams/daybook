@@ -26,7 +26,7 @@ The SQLite database lives at `data/daybook.db`.
 - **Search** — full-text search over `content` (FTS5, prefix-match per token).
 - **Pagination** — 25 per page.
 - **Blocker status** — open/resolved toggle, defaults to showing open only.
-- **Standup** — `/api/standup` returns yesterday's done, today's done so far, open blockers, today's notes — formatted as a copy-paste-ready text block.
+- **Standup** — `/api/standup` returns your previous working day's done items, today's planned tasks, and open blockers — formatted as a copy-paste-ready text block. "Yesterday" pulls from the most recent earlier day that has `done` entries, so it skips weekends and bank holidays automatically; a date picker on the Yesterday section lets you point it at a different day (`?prev=YYYY-MM-DD`).
 - **Export** — `/api/export?range=week|month` or `from=YYYY-MM-DD&to=YYYY-MM-DD` returns JSON; add `?download=1` to force file download.
 
 ## API
@@ -37,7 +37,7 @@ The SQLite database lives at `data/daybook.db`.
 | POST | `/api/entries` | `{kind, content}` |
 | PATCH | `/api/entries/:id` | `{content?, status?}` |
 | DELETE | `/api/entries/:id` | |
-| GET | `/api/standup` | Standup bundle |
+| GET | `/api/standup?date=&prev=` | Standup bundle (`prev` overrides the "yesterday" source day) |
 | GET | `/api/export?range=week\|month` or `?from=&to=` | JSON dump; `?download=1` to attach |
 
 ## Feed export to an agent

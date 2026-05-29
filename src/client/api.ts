@@ -28,6 +28,8 @@ export interface StandupResponse {
   date: string;
   sections: StandupSections;
   locked: boolean;
+  /** Resolved source day for the "yesterday" section (live preview only). */
+  prevDate?: string;
   submittedAt?: string;
   updatedAt?: string;
 }
@@ -117,9 +119,10 @@ export const api = {
   remove(id: number) {
     return fetch(`/api/entries/${id}`, { method: 'DELETE' }).then(json<void>);
   },
-  standup(date?: string) {
+  standup(date?: string, prev?: string) {
     const sp = new URLSearchParams();
     if (date) sp.set('date', date);
+    if (prev) sp.set('prev', prev);
     const qs = sp.toString();
     return fetch(`/api/standup${qs ? `?${qs}` : ''}`).then(json<StandupResponse>);
   },

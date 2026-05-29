@@ -134,14 +134,33 @@ function entriesOn(day: string, kind: Kind): Entry[] {
     .all(kind, day) as Entry[];
 }
 
+// The "yesterday" section pulls from your previous *working* day, which we
+// infer as the most recent earlier day that actually has `done` entries.
+// This skips weekends and bank holidays automatically — you logged nothing
+// on those days. Falls back to the previous calendar day if nothing's logged.
+function previousDoneDate(beforeDate: string): string {
+  const row = db
+    .prepare(
+      `SELECT date(created_at) AS d FROM entries
+       WHERE kind = 'done' AND date(created_at) < ?
+       ORDER BY d DESC LIMIT 1`,
+    )
+    .get(beforeDate) as { d: string } | undefined;
+  return row?.d ?? shiftDayISO(beforeDate, -1);
+}
+
 interface StandupSections {
   yesterday: string[];
   today: string[];
   blockers: string[];
 }
 
-function livePreview(date: string): StandupSections {
-  const yesterday = entriesOn(shiftDayISO(date, -1), 'done').map((e) => e.content);
+// `prev` overrides which day the "yesterday" section pulls from; when omitted
+// it defaults to the previous working day (see previousDoneDate). The resolved
+// source day is returned as `prevDate` so the client can display/seed its picker.
+function livePreview(date: string, prev?: string): StandupSections & { prevDate: string } {
+  const prevDate = prev ?? previousDoneDate(date);
+  const yesterday = entriesOn(prevDate, 'done').map((e) => e.content);
   const today = entriesOn(date, 'plan').map((e) => e.content);
   // For "today" (real today), use currently-open blockers; for past dates,
   // use blockers that existed on that date.
@@ -156,7 +175,7 @@ function livePreview(date: string): StandupSections {
   } else {
     blockerEntries = entriesOn(date, 'blocker');
   }
-  return { yesterday, today, blockers: blockerEntries.map((e) => e.content) };
+  return { yesterday, today, blockers: blockerEntries.map((e) => e.content), prevDate };
 }
 
 function getSnapshot(date: string): StandupSnapshotRow | undefined {
@@ -200,7 +219,12 @@ app.get('/api/standup', (req: Request, res: Response) => {
     });
     return;
   }
-  res.json({ date, sections: livePreview(date), locked: false });
+  const prev =
+    typeof req.query.prev === 'string' && DATE_RE.test(req.query.prev) && req.query.prev < date
+      ? req.query.prev
+      : undefined;
+  const { prevDate, ...sections } = livePreview(date, prev);
+  res.json({ date, sections, locked: false, prevDate });
 });
 
 app.post('/api/standup', (req: Request, res: Response) => {
@@ -422,7 +446,7 @@ below are relative to either origin — use whichever is reachable.
 | POST | /api/entries | Create a new entry |
 | PATCH | /api/entries/:id | Update content or status |
 | DELETE | /api/entries/:id | Delete |
-| GET | /api/standup?date=YYYY-MM-DD | Live preview or locked snapshot |
+| GET | /api/standup?date=YYYY-MM-DD&prev=YYYY-MM-DD | Live preview or locked snapshot (\`prev\` overrides the "yesterday" source day) |
 | POST | /api/standup | Upsert a standup snapshot for a date |
 | DELETE | /api/standup/:date | Unlock a date (revert to live preview) |
 | GET | /api/standup/history | Recent submitted standup dates |
@@ -534,12 +558,16 @@ appropriately, so emit them rather than markdown.
 ## Standup snapshots
 
 \`GET /api/standup?date=YYYY-MM-DD\` returns either a locked snapshot or
-a live preview built from that day's entries:
+a live preview built from that day's entries. The "yesterday" section
+pulls from your previous working day (the most recent earlier day with
+\`done\` entries — skips weekends/holidays); pass \`&prev=YYYY-MM-DD\` to
+override which day it pulls from. \`prevDate\` echoes the resolved source:
 \`\`\`json
 {
   "date": "2026-05-20",
   "sections": { "yesterday": [], "today": [], "blockers": [] },
   "locked": false,
+  "prevDate": "2026-05-19",
   "submittedAt": "optional, only if locked",
   "updatedAt": "optional, only if locked"
 }

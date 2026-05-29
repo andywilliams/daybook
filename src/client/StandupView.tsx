@@ -30,6 +30,16 @@ function formatDateLabel(day: string): string {
   });
 }
 
+function formatShortDate(day: string): string {
+  const d = new Date(day + 'T00:00:00Z');
+  return d.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
 function formatTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
@@ -45,6 +55,7 @@ export function StandupView({ onChange }: { onChange: () => void }) {
   const [date, setDate] = useState<string>(todayISO());
   const [response, setResponse] = useState<StandupResponse | null>(null);
   const [draft, setDraft] = useState<StandupSections | null>(null);
+  const [prevDate, setPrevDate] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -58,6 +69,7 @@ export function StandupView({ onChange }: { onChange: () => void }) {
         const r = await api.standup(forDate);
         setResponse(r);
         setDraft(r.sections);
+        setPrevDate(r.prevDate ?? shiftDay(forDate, -1));
         setDirty(false);
       } finally {
         setLoading(false);
@@ -86,6 +98,15 @@ export function StandupView({ onChange }: { onChange: () => void }) {
   const addLine = (section: SectionKey) => {
     focusKeyRef.current = `${section}:new`;
     setDraft((s) => (s ? { ...s, [section]: [...s[section], ''] } : s));
+    setDirty(true);
+  };
+
+  // Re-pull only the "yesterday" section from a different source day, leaving
+  // the user's today/blockers edits untouched.
+  const changeYesterdaySource = async (newPrev: string) => {
+    const r = await api.standup(date, newPrev);
+    setDraft((s) => (s ? { ...s, yesterday: r.sections.yesterday } : s));
+    setPrevDate(r.prevDate ?? newPrev);
     setDirty(true);
   };
 
@@ -213,6 +234,15 @@ export function StandupView({ onChange }: { onChange: () => void }) {
           onAdd={() => addLine(key)}
           focusKey={focusKeyRef.current}
           clearFocus={() => (focusKeyRef.current = null)}
+          source={
+            key === 'yesterday' && !locked && prevDate
+              ? {
+                  date: prevDate,
+                  max: shiftDay(date, -1),
+                  onChange: changeYesterdaySource,
+                }
+              : null
+          }
         />
       ))}
 
@@ -222,6 +252,12 @@ export function StandupView({ onChange }: { onChange: () => void }) {
       </details>
     </div>
   );
+}
+
+interface SectionSource {
+  date: string;
+  max: string;
+  onChange: (date: string) => void;
 }
 
 function Section({
@@ -234,6 +270,7 @@ function Section({
   onAdd,
   focusKey,
   clearFocus,
+  source,
 }: {
   sectionKey: SectionKey;
   label: string;
@@ -244,11 +281,26 @@ function Section({
   onAdd: () => void;
   focusKey: string | null;
   clearFocus: () => void;
+  source?: SectionSource | null;
 }) {
   return (
     <div className={`section section-${sectionKey}`}>
       <div className="section-head">
         <h3>{label}</h3>
+        {source && (
+          <label className="section-source" title="Pick which day's done items to pull in">
+            <span className="section-source-label">from {formatShortDate(source.date)}</span>
+            <input
+              type="date"
+              className="standup-date-picker"
+              value={source.date}
+              max={source.max}
+              onChange={(e) => {
+                if (e.target.value && e.target.value <= source.max) source.onChange(e.target.value);
+              }}
+            />
+          </label>
+        )}
       </div>
       {items.length === 0 ? (
         <div className="section-empty">(nothing yet)</div>

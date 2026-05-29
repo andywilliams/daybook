@@ -724,6 +724,20 @@ input[type='text'] {
   margin: 4px 0 8px;
 }
 
+.section-source {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.section-source-label {
+  font-size: 12px;
+  color: var(--muted);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
 .bullets {
   list-style: none;
   padding: 0;
