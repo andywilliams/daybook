@@ -94,33 +94,35 @@ export function ReviewsView() {
       </div>
 
       {total > 0 && (
-        <div className="standup-datebar">
-          <button
-            className="ghost"
-            onClick={() => setIndex(safeIndex + 1)}
-            disabled={atOldest}
-            title={atOldest ? 'No older reviews' : 'Older review'}
-          >
-            ← Older
-          </button>
-          <div className="standup-date">
-            <strong>
-              {safeIndex + 1} of {total}
-            </strong>
-            {!atNewest && (
-              <button className="ghost small" onClick={() => setIndex(0)}>
-                Latest
-              </button>
-            )}
+        <div className="datebar">
+          <div className="datebar-nav">
+            <button
+              className="ghost icon-nav"
+              onClick={() => setIndex(safeIndex + 1)}
+              disabled={atOldest}
+              title={atOldest ? 'No older reviews' : 'Older review'}
+              aria-label="Older review"
+            >
+              ‹
+            </button>
+            <button
+              className="ghost icon-nav"
+              onClick={() => setIndex(safeIndex - 1)}
+              disabled={atNewest}
+              title={atNewest ? 'No newer reviews' : 'Newer review'}
+              aria-label="Newer review"
+            >
+              ›
+            </button>
           </div>
-          <button
-            className="ghost"
-            onClick={() => setIndex(safeIndex - 1)}
-            disabled={atNewest}
-            title={atNewest ? 'No newer reviews' : 'Newer review'}
-          >
-            Newer →
-          </button>
+          <span className="datebar-static">
+            {safeIndex + 1} of {total}
+          </span>
+          {!atNewest && (
+            <button className="ghost small" onClick={() => setIndex(0)}>
+              Latest
+            </button>
+          )}
         </div>
       )}
 

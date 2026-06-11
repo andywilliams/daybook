@@ -1,5 +1,5 @@
 :root {
-  color-scheme: light dark;
+  color-scheme: dark;
   --bg: #0f1115;
   --panel: #171a21;
   --panel-2: #1f242d;
@@ -53,6 +53,22 @@ body {
   border-top: 1px solid var(--border);
 }
 
+.sidebar-hint {
+  padding: 0 8px 8px;
+  font-size: 11px;
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+kbd {
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
+  font-family: inherit;
+  font-size: 10px;
+}
+
 .sidebar-link {
   display: block;
   padding: 6px 8px;
@@ -100,16 +116,48 @@ body {
   color: var(--muted);
 }
 
+.nav-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.kind-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: 0 0 auto;
+}
+
+.kind-dot-plan {
+  background: var(--plan);
+}
+
+.kind-dot-done {
+  background: var(--done);
+}
+
+.kind-dot-note {
+  background: var(--note);
+}
+
+.kind-dot-blocker {
+  background: var(--blocker);
+}
+
 .main {
-  padding: 24px 28px;
+  padding: 28px 32px;
   overflow-y: auto;
   max-width: 980px;
+  width: 100%;
+  margin: 0 auto;
 }
 
 .main h2 {
-  margin: 0 0 16px;
-  font-size: 18px;
-  font-weight: 600;
+  margin: 0 0 20px;
+  font-size: 24px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
 }
 
 .composer {
@@ -228,6 +276,26 @@ input[type='text'] {
   background: var(--blocker);
 }
 
+.entry.done {
+  background: color-mix(in srgb, var(--done) 4%, var(--panel));
+  border-color: color-mix(in srgb, var(--done) 14%, var(--border));
+}
+
+.entry.plan {
+  background: color-mix(in srgb, var(--plan) 4%, var(--panel));
+  border-color: color-mix(in srgb, var(--plan) 14%, var(--border));
+}
+
+.entry.note {
+  background: color-mix(in srgb, var(--note) 4%, var(--panel));
+  border-color: color-mix(in srgb, var(--note) 14%, var(--border));
+}
+
+.entry.blocker {
+  background: color-mix(in srgb, var(--blocker) 4%, var(--panel));
+  border-color: color-mix(in srgb, var(--blocker) 14%, var(--border));
+}
+
 .entry.resolved {
   opacity: 0.55;
 }
@@ -255,11 +323,45 @@ input[type='text'] {
   display: flex;
   gap: 6px;
   align-items: center;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+
+.entry:hover .actions,
+.entry:focus-within .actions,
+.entry.editing .actions {
+  opacity: 1;
 }
 
 .entry .actions button {
   padding: 4px 10px;
   font-size: 12px;
+}
+
+button.icon-nav {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: inline-grid;
+  place-items: center;
+  font-size: 16px;
+  line-height: 1;
+}
+
+.entry .actions button.icon-nav {
+  width: 26px;
+  height: 26px;
+  font-size: 13px;
+  padding: 0;
+}
+
+button.danger.icon-nav {
+  border-color: transparent;
+}
+
+button.danger.icon-nav:hover {
+  border-color: var(--border);
+  background: var(--panel-2);
 }
 
 .pagination {
@@ -309,19 +411,64 @@ input[type='text'] {
   font-size: 12px;
 }
 
-.standup-datebar {
+.datebar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  margin: 0 0 12px;
+  gap: 8px;
+  margin: 0 0 16px;
 }
 
-.standup-date {
+.datebar-nav {
   display: flex;
+  gap: 4px;
+}
+
+.datebar-anchor {
+  position: relative;
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
+}
+
+.datebar-label {
+  background: none;
+  border: none;
+  color: var(--text);
   font-size: 15px;
+  font-weight: 600;
+  padding: 5px 8px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  cursor: pointer;
+}
+
+.datebar-label:hover {
+  background: var(--panel-2);
+}
+
+.datebar-caret {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+/* Kept in the document so showPicker() can anchor the native calendar to the label. */
+.datebar-input {
+  position: absolute;
+  left: 50%;
+  bottom: 0;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+  border: 0;
+  padding: 0;
+}
+
+.datebar-static {
+  font-size: 15px;
+  font-weight: 600;
+  padding: 5px 8px;
 }
 
 .standup-date-picker {
@@ -376,6 +523,70 @@ input[type='text'] {
   font-size: 12px;
   color: var(--muted);
   margin: -8px 0 14px;
+}
+
+.carryover {
+  background: color-mix(in srgb, var(--plan) 5%, var(--panel));
+  border: 1px solid color-mix(in srgb, var(--plan) 18%, var(--border));
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin: -4px 0 16px;
+}
+
+.carryover-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.carryover-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: color-mix(in srgb, var(--plan) 70%, var(--text));
+}
+
+.carryover-dismiss {
+  background: transparent;
+  border: none;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+}
+
+.carryover-dismiss:hover {
+  color: var(--text);
+  background: var(--panel-2);
+}
+
+.carryover-list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.carryover-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.carryover-content {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+}
+
+.carryover-added {
+  font-size: 12px;
+  color: var(--done);
+  white-space: nowrap;
+  padding: 4px 10px;
 }
 
 .kindday-count {
@@ -699,6 +910,18 @@ input[type='text'] {
 
 .section-blockers {
   border-left-color: var(--blocker);
+}
+
+.section-yesterday h3 {
+  color: color-mix(in srgb, var(--done) 60%, var(--muted));
+}
+
+.section-today h3 {
+  color: color-mix(in srgb, var(--plan) 60%, var(--muted));
+}
+
+.section-blockers h3 {
+  color: color-mix(in srgb, var(--blocker) 60%, var(--muted));
 }
 
 .section-head {

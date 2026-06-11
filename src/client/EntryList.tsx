@@ -145,7 +145,16 @@ export function EntryList({ kind, onChange }: { kind: Kind; onChange: () => void
   );
 }
 
-export function EntryRow({ entry, onChanged }: { entry: Entry; onChanged: () => void }) {
+export function EntryRow({
+  entry,
+  onChanged,
+  dateless = false,
+}: {
+  entry: Entry;
+  onChanged: () => void;
+  /** Omit the date from the meta line when the surrounding view is already scoped to one day. */
+  dateless?: boolean;
+}) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(entry.content);
 
@@ -171,7 +180,9 @@ export function EntryRow({ entry, onChanged }: { entry: Entry; onChanged: () => 
   };
 
   return (
-    <div className={`entry ${entry.kind} ${entry.status === 'resolved' ? 'resolved' : ''}`}>
+    <div
+      className={`entry ${entry.kind} ${entry.status === 'resolved' ? 'resolved' : ''} ${editing ? 'editing' : ''}`}
+    >
       <span className="badge" />
       <div className="body">
         {editing ? (
@@ -179,13 +190,22 @@ export function EntryRow({ entry, onChanged }: { entry: Entry; onChanged: () => 
             className="edit"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                setDraft(entry.content);
+                setEditing(false);
+              } else if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault();
+                save();
+              }
+            }}
             autoFocus
           />
         ) : (
           <div className="content">{entry.content}</div>
         )}
         <div className="meta">
-          <span>{formatDate(entry.created_at)}</span>
+          <span>{dateless ? formatTime(entry.created_at) : formatDate(entry.created_at)}</span>
           {entry.kind === 'blocker' ? <span>· {entry.status}</span> : null}
           {entry.updated_at !== entry.created_at ? (
             <span>· edited {formatDate(entry.updated_at)}</span>
@@ -216,8 +236,8 @@ export function EntryRow({ entry, onChanged }: { entry: Entry; onChanged: () => 
             <button className="ghost" onClick={() => setEditing(true)}>
               Edit
             </button>
-            <button className="danger" onClick={remove}>
-              Delete
+            <button className="danger icon-nav" onClick={remove} title="Delete entry" aria-label="Delete entry">
+              ✕
             </button>
           </>
         )}
@@ -265,4 +285,9 @@ function formatDate(iso: string): string {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function formatTime(iso: string): string {
+  const d = new Date(iso.replace(' ', 'T') + 'Z');
+  return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
 }

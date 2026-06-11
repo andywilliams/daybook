@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, type Entry, type Kind } from './api';
 import { EntryRow } from './EntryList';
+import { DateBar } from './DateBar';
+import { shiftDay, todayISO } from './dates';
 
 const KIND_LABEL: Record<Kind, string> = {
   plan: 'Plan',
@@ -8,27 +10,6 @@ const KIND_LABEL: Record<Kind, string> = {
   note: 'Note',
   blocker: 'Blocker',
 };
-
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function shiftDay(day: string, delta: number): string {
-  const d = new Date(day + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() + delta);
-  return d.toISOString().slice(0, 10);
-}
-
-function formatDateLabel(day: string): string {
-  const d = new Date(day + 'T00:00:00Z');
-  return d.toLocaleDateString(undefined, {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
-}
 
 export function DayView({ onChange }: { onChange: () => void }) {
   const [date, setDate] = useState<string>(todayISO());
@@ -59,7 +40,6 @@ export function DayView({ onChange }: { onChange: () => void }) {
   for (const r of rows) counts[r.kind]++;
 
   const visible = filter === 'all' ? rows : rows.filter((r) => r.kind === filter);
-  const isToday = date === todayISO();
 
   return (
     <div className="day">
@@ -67,37 +47,7 @@ export function DayView({ onChange }: { onChange: () => void }) {
         <h2>Day</h2>
       </div>
 
-      <div className="standup-datebar">
-        <button className="ghost" onClick={() => setDate(shiftDay(date, -1))} title="Previous day">
-          ← Prev
-        </button>
-        <div className="standup-date">
-          <strong>{formatDateLabel(date)}</strong>
-          <input
-            type="date"
-            className="standup-date-picker"
-            value={date}
-            max={todayISO()}
-            onChange={(e) => {
-              if (e.target.value) setDate(e.target.value);
-            }}
-            title="Jump to a date"
-          />
-          {!isToday && (
-            <button className="ghost small" onClick={() => setDate(todayISO())}>
-              Today
-            </button>
-          )}
-        </div>
-        <button
-          className="ghost"
-          onClick={() => setDate(shiftDay(date, 1))}
-          disabled={isToday}
-          title={isToday ? 'No future dates' : 'Next day'}
-        >
-          Next →
-        </button>
-      </div>
+      <DateBar date={date} onChange={setDate} />
 
       <div className="day-filterbar">
         <FilterChip label="All" count={rows.length} active={filter === 'all'} onClick={() => setFilter('all')} />
@@ -127,6 +77,7 @@ export function DayView({ onChange }: { onChange: () => void }) {
             <EntryRow
               key={e.id}
               entry={e}
+              dateless
               onChanged={() => {
                 load(date);
                 onChange();

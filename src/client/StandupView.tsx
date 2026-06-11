@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { api, type StandupResponse, type StandupSections } from './api';
+import { DateBar } from './DateBar';
+import { formatShortDate, shiftDay, todayISO } from './dates';
 
 type SectionKey = 'yesterday' | 'today' | 'blockers';
 
@@ -8,37 +10,6 @@ const SECTION_META: Record<SectionKey, { label: string; addLabel: string }> = {
   today: { label: 'Today', addLabel: 'Add a planned task' },
   blockers: { label: 'Blockers', addLabel: 'Add a blocker' },
 };
-
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function shiftDay(day: string, delta: number): string {
-  const d = new Date(day + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() + delta);
-  return d.toISOString().slice(0, 10);
-}
-
-function formatDateLabel(day: string): string {
-  const d = new Date(day + 'T00:00:00Z');
-  return d.toLocaleDateString(undefined, {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
-}
-
-function formatShortDate(day: string): string {
-  const d = new Date(day + 'T00:00:00Z');
-  return d.toLocaleDateString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
-}
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
@@ -82,7 +53,6 @@ export function StandupView({ onChange }: { onChange: () => void }) {
     load(date);
   }, [date, load]);
 
-  const isToday = date === todayISO();
   const locked = response?.locked ?? false;
 
   const updateLine = (section: SectionKey, index: number, value: string) => {
@@ -166,41 +136,11 @@ export function StandupView({ onChange }: { onChange: () => void }) {
       <div className="standup-header-row">
         <h2>Standup</h2>
         <div className="standup-actions">
-          <button onClick={copy}>{copied ? 'Copied!' : 'Copy for Slack'}</button>
+          <button className="ghost" onClick={copy}>{copied ? 'Copied!' : 'Copy for Slack'}</button>
         </div>
       </div>
 
-      <div className="standup-datebar">
-        <button className="ghost" onClick={() => setDate(shiftDay(date, -1))} title="Previous day">
-          ← Prev
-        </button>
-        <div className="standup-date">
-          <strong>{formatDateLabel(date)}</strong>
-          <input
-            type="date"
-            className="standup-date-picker"
-            value={date}
-            max={todayISO()}
-            onChange={(e) => {
-              if (e.target.value) setDate(e.target.value);
-            }}
-            title="Jump to a date"
-          />
-          {!isToday && (
-            <button className="ghost small" onClick={() => setDate(todayISO())}>
-              Today
-            </button>
-          )}
-        </div>
-        <button
-          className="ghost"
-          onClick={() => setDate(shiftDay(date, 1))}
-          disabled={isToday}
-          title={isToday ? 'No future dates' : 'Next day'}
-        >
-          Next →
-        </button>
-      </div>
+      <DateBar date={date} onChange={setDate} />
 
       <div className={`standup-status ${locked ? 'is-locked' : 'is-live'}`}>
         <span>{status}</span>

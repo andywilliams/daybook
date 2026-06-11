@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, type Entry, type Kind } from './api';
 import { EntryRow } from './EntryList';
+import { DateBar } from './DateBar';
+import { formatShortDate, shiftDay, todayISO } from './dates';
 
 const TITLES: Record<Kind, string> = {
   plan: 'Plan',
@@ -16,32 +18,38 @@ const PLACEHOLDERS: Record<Kind, string> = {
   blocker: 'What is blocking you? (cmd/ctrl+enter to add)',
 };
 
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function shiftDay(day: string, delta: number): string {
-  const d = new Date(day + 'T00:00:00Z');
-  d.setUTCDate(d.getUTCDate() + delta);
-  return d.toISOString().slice(0, 10);
-}
-
-function formatDateLabel(day: string): string {
-  const d = new Date(day + 'T00:00:00Z');
-  return d.toLocaleDateString(undefined, {
-    weekday: 'long',
-    year: 'numeric',
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
-}
+const CARRY_DISMISS_KEY = 'daybook-carryover-dismissed';
 
 export function KindDayView({ kind, onChange }: { kind: Kind; onChange: () => void }) {
   const [date, setDate] = useState<string>(todayISO());
   const [rows, setRows] = useState<Entry[]>([]);
   const [loading, setLoading] = useState(true);
   const [draft, setDraft] = useState('');
+  const [carry, setCarry] = useState<{ day: string; items: Entry[] } | null>(null);
+  const [carryDismissed, setCarryDismissed] = useState(
+    () => localStorage.getItem(CARRY_DISMISS_KEY) === todayISO(),
+  );
+
+  // Plans from the most recent earlier day that has any — the morning
+  // triage list. Entries are returned newest-first, so the first row's
+  // day is that source day.
+  const loadCarry = useCallback(async () => {
+    if (kind !== 'plan') {
+      setCarry(null);
+      return;
+    }
+    const r = await api.list({ kind: 'plan', to: todayISO(), pageSize: 25 });
+    const day = r.rows[0]?.created_at.slice(0, 10);
+    if (!day) {
+      setCarry(null);
+      return;
+    }
+    setCarry({ day, items: r.rows.filter((e) => e.created_at.slice(0, 10) === day) });
+  }, [kind]);
+
+  useEffect(() => {
+    loadCarry();
+  }, [loadCarry]);
 
   const load = useCallback(
     async (day: string) => {
@@ -93,6 +101,24 @@ export function KindDayView({ kind, onChange }: { kind: Kind; onChange: () => vo
     }
   };
 
+  const bringForward = async (entries: Entry[]) => {
+    for (const e of entries) {
+      await api.create('plan', e.content);
+    }
+    if (!isToday) setDate(todayISO());
+    else load(date);
+    onChange();
+  };
+
+  const dismissCarry = () => {
+    localStorage.setItem(CARRY_DISMISS_KEY, todayISO());
+    setCarryDismissed(true);
+  };
+
+  const todayContents = new Set(rows.map((r) => r.content));
+  const showCarry =
+    kind === 'plan' && isToday && !carryDismissed && carry !== null && carry.items.length > 0;
+
   return (
     <div className="kindday">
       <div className="standup-header-row">
@@ -116,37 +142,50 @@ export function KindDayView({ kind, onChange }: { kind: Kind; onChange: () => vo
         </div>
       )}
 
-      <div className="standup-datebar">
-        <button className="ghost" onClick={() => setDate(shiftDay(date, -1))} title="Previous day">
-          ← Prev
-        </button>
-        <div className="standup-date">
-          <strong>{formatDateLabel(date)}</strong>
-          <input
-            type="date"
-            className="standup-date-picker"
-            value={date}
-            max={todayISO()}
-            onChange={(e) => {
-              if (e.target.value) setDate(e.target.value);
-            }}
-            title="Jump to a date"
-          />
-          {!isToday && (
-            <button className="ghost small" onClick={() => setDate(todayISO())}>
-              Today
+      {showCarry && carry && (
+        <div className="carryover">
+          <div className="carryover-head">
+            <span className="carryover-title">
+              Plans from {formatShortDate(carry.day)} — still working on any of these?
+            </span>
+            <button
+              className="carryover-dismiss"
+              onClick={dismissCarry}
+              title="Hide for today"
+              aria-label="Hide for today"
+            >
+              ✕
+            </button>
+          </div>
+          <ul className="carryover-list">
+            {carry.items.map((e) => {
+              const added = todayContents.has(e.content);
+              return (
+                <li key={e.id} className="carryover-item">
+                  <span className="carryover-content">{e.content}</span>
+                  {added ? (
+                    <span className="carryover-added">✓ added</span>
+                  ) : (
+                    <button className="ghost small" onClick={() => bringForward([e])}>
+                      ↪ Today
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+          {carry.items.filter((e) => !todayContents.has(e.content)).length > 1 && (
+            <button
+              className="ghost small"
+              onClick={() => bringForward(carry.items.filter((e) => !todayContents.has(e.content)))}
+            >
+              Bring all forward
             </button>
           )}
         </div>
-        <button
-          className="ghost"
-          onClick={() => setDate(shiftDay(date, 1))}
-          disabled={isToday}
-          title={isToday ? 'No future dates' : 'Next day'}
-        >
-          Next →
-        </button>
-      </div>
+      )}
+
+      <DateBar date={date} onChange={setDate} />
 
       <div className="kindday-count">
         {loading
@@ -166,6 +205,7 @@ export function KindDayView({ kind, onChange }: { kind: Kind; onChange: () => vo
             <EntryRow
               key={e.id}
               entry={e}
+              dateless
               onChanged={() => {
                 load(date);
                 onChange();
